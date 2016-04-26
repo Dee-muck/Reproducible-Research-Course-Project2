@@ -1,0 +1,213 @@
+---
+title: "Reproducible Research: Corse Project 2"
+output: 
+  html_document:
+    keep_md: true
+---
+
+*Dmitry Bazyukin*  
+*April,2016*  
+
+#Weather Events Impact To Population Health and The Economy In US, 1950-2011  
+  
+##Synopsis  
+The National Climatic Data Center (NCDC) regularly receives Storm Data from the National Weathe Service (NWS). The National Weather service receive their information from a variety of sources. The NWS makes a best guess using all available data at the time of the publication. The damage amounts are received from a variety of sources, including those listed above in the Dat Sources section. Property and Crop damage should be considered as a broad estimate. Impact on Economic and People in this report will be measured by using estimates of injuries, fatalities, and property and crop damage. The aim of analusis performed is to answer for two questions:
+
+ - Across the United States, which types of events are most harmful with respect to  -  population health?
+ - Across the United States, which types of events have the greatest economic consequences?  
+ 
+##Data Processing
+Above all we set language preferences to English to avoid malfunction due to inapropriate settings:
+
+```{r}
+## To set it in english
+Sys.setlocale("LC_TIME","en_US.UTF-8")
+```
+
+Then we load neccesary libraries and set the working directory
+```{r ,results="hide"}
+##Loading neccesary libraries
+library(ggplot2)
+library(dplyr)
+library(knitr)
+
+```
+
+Storm Data can be loaded from the course website:
+
+```{r}
+##Downloading the file from the Internet source
+url <- "https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2" 
+
+if (!file.exists("stormData.csv.bz2")) {
+        download.file(url, destfile = "stormData.csv.bz2", method ="curl")
+}
+```
+
+Reading data to the StormData variable. We don't need to unzip initial file, because
+read.csv function can handle compressed files and do this automatically.
+```{r}
+StormData <- read.csv('StormData.csv.bz2', header = T)
+```
+
+Make a quick view on the data:
+```{r}
+str(StormData)
+```
+
+Select only fileds that we need to perform analysis to speed-up calculations:
+```{r}
+StormData2 <-StormData[,c("EVTYPE","FATALITIES","INJURIES","PROPDMG","PROPDMGEXP","CROPDMG","CROPDMGEXP")]
+```
+
+According to the page 12 of the [Storm Data Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf) :
+"Estimates should be rounded to three significant digits, 
+followed by an alphabetical character signifying the magnitude of the number,
+i.e., 1.55B for $1,550,000,000. Alphabetical characters used to signify 
+magnitude include “K” for thousands, “M” for millions, and “B” for billions."
+So, we need to convert the values of impacts to its real size.
+```{r}
+##Lets view the multipliers
+unique(StormData2$PROPDMGEXP)
+unique(StormData2$CROPDMGEXP)
+```
+
+We see, that magnitude of number is not always alphabetical, and obviously, some
+errors presented.
+
+So, we convert alphabetical magnitude to numbers, numbers magnitude remains "as is" and we decided than they represents the multiplier.
+Others symbols are considered errors and equipment malfunction.
+
+```{r}
+##Conver multipliers to sumarize and calculate effect:
+##For property:
+
+StormData2$PROPDMGEXP <- as.character(StormData2$PROPDMGEXP)
+StormData2$PROPDMGEXP[(toupper(StormData2$PROPDMGEXP)=="K")] <- 3
+StormData2$PROPDMGEXP[(toupper(StormData2$PROPDMGEXP)=="M")] <- 6
+StormData2$PROPDMGEXP[(toupper(StormData2$PROPDMGEXP)=="B")] <- 9
+StormData2$PROPDMGEXP[(toupper(StormData2$PROPDMGEXP)=="H")] <- 2
+StormData2$PROPDMGEXP[(StormData2$PROPDMGEXP=="")|
+                              (StormData2$PROPDMGEXP=="?")|
+                              (StormData2$PROPDMGEXP=="-")|
+                              (StormData2$PROPDMGEXP=="0")|
+                              (StormData2$PROPDMGEXP=="+")] <- 0
+StormData2$PROPDMGEXP <- as.numeric(StormData2$PROPDMGEXP)
+
+##For crop:
+StormData2$CROPDMGEXP <- as.character(StormData2$CROPDMGEXP)
+StormData2$CROPDMGEXP[(toupper(StormData2$CROPDMGEXP)=="K")] <- 3
+StormData2$CROPDMGEXP[(toupper(StormData2$CROPDMGEXP)=="M")] <- 6
+StormData2$CROPDMGEXP[(toupper(StormData2$CROPDMGEXP)=="B")] <- 9
+StormData2$CROPDMGEXP[(toupper(StormData2$CROPDMGEXP)=="H")] <- 2
+StormData2$CROPDMGEXP[(StormData2$CROPDMGEXP=="")|
+                              (StormData2$CROPDMGEXP=="?")] <- 0
+StormData2$CROPDMGEXP <- as.numeric(StormData2$CROPDMGEXP)
+
+## converting values to multipliers
+StormData2$PROPDMG <- StormData2$PROPDMG*(10^StormData2$PROPDMGEXP)
+StormData2$CROPDMG <- StormData2$CROPDMG*(10^StormData2$CROPDMGEXP)
+```
+
+According to the page 6 of  [Storm Data Documentation](https://d396qusza40orc.cloudfront.net/repdata%2Fpeer2_doc%2Fpd01016005curr.pdf) there is 48 types of dangerous 
+weather events.
+Lets look at the data presented:
+```{r}
+unique(StormData2$EVTYPE)
+```
+
+As we can see, much more event types is presented.
+Some event type are called in different way, so to be more accurate we convert them.
+```{r}
+##convert strings to upper case for better matching
+StormData2$EVTYPE<- toupper(StormData2$EVTYPE)
+
+StormData2[StormData2$EVTYPE == "TSTM WIND", ]$EVTYPE = "THUNDERSTORM WIND"
+StormData2[StormData2$EVTYPE == "THUNDERSTORM WINDS", ]$EVTYPE = "THUNDERSTORM WIND"
+StormData2[StormData2$EVTYPE == "RIVER FLOOD", ]$EVTYPE = "FLOOD"
+StormData2[StormData2$EVTYPE == "HURRICANE/TYPHOON", ]$EVTYPE = "HURRICANE"
+```
+
+Counting damages and impact for people and economic.
+To avoid messy data lets limit damage factors to count 10
+```{r}
+PeoplesDamages <- 
+        StormData2%>%
+        group_by(EVTYPE) %>% 
+        summarize(DAMAGE = sum(INJURIES) + sum(FATALITIES))
+
+EconomicDamages <-
+        StormData2 %>%
+        group_by(EVTYPE) %>% 
+        summarize(DAMAGE = sum(PROPDMG) + sum(CROPDMG))
+
+##Top 10 dangerous events for people and Economic
+PDtop10 <- arrange(PeoplesDamages, desc(DAMAGE))[1:10,]
+EDtop10 <- arrange(EconomicDamages, desc(DAMAGE))[1:10,]
+
+CropDamages <-
+        StormData2 %>%
+        group_by(EVTYPE) %>% 
+        summarize(DAMAGE = sum(CROPDMG))
+
+PropDamages <-
+        StormData2 %>%
+        group_by(EVTYPE) %>% 
+        summarize(DAMAGE = sum(PROPDMG))
+
+#Top 10 dangerous events for Property and Crop
+PrDtop10 <- arrange(PropDamages, desc(DAMAGE))[1:10,]
+CDtop10 <- arrange(CropDamages, desc(DAMAGE))[1:10,]
+```
+
+The results are:
+
+TOP-10 dangerous weather events for People:
+```{r}
+PDtop10
+```
+
+TOP-10 dangerous weather events for Economics (Property and Crop combined):
+```{r}
+EDtop10
+```
+
+##Results
+Plot the graphs that helps us to ansewer to questions, mentioned above:
+
+ * Across the United States, which types of events are most harmful with respect to population health?
+ 
+ It shows that tornadoes are most harmful to population health for both cases
+
+```{r}
+##Plotting the results
+##Setting the Graph parameters
+par(oma=c(5,1,1,2))
+par(mfrow = c(1, 1), mar = c(7, 4, 3, 2), mgp = c(3, 1, 0), las=2, cex = 0.6)
+##Peoples Damage (Fatalities and Injures)
+barplot(PDtop10$DAMAGE, names.arg = PDtop10$EVTYPE, las = 3,
+        main = "Fatalities and Injuries",
+        ylab = "People damage",col = "magenta4")
+title(main="Top 10 Dangerous Weather Event Types for People, 1950-2011",outer=T)
+```
+
+Analysis performed shows that Tornados are the most dangerous and harmful event for people.
+
+ * Across the United States, which types of events have the greatest economic consequences?
+
+```{r}
+##Economic impact
+par(mfrow = c(1, 2), mar = c(10, 4, 3, 2), mgp = c(3, 1, 0), las=2, cex = 0.6)
+
+barplot(PrDtop10$DAMAGE/(1e9), names.arg = PrDtop10$EVTYPE, las = 3,
+        main = "Property Damages",
+        ylab = "Damage Cost ($ billions)",col = "blue")
+barplot(CDtop10$DAMAGE/(1e9), names.arg = CDtop10$EVTYPE, las = 3,
+        main = "Crop Damages",
+        ylab = "Damage Cost ($ billions)",col = "wheat")
+title(main="TOP 10 Dangerous Weather Event Types for Economic, 1950-2011",outer=T)
+```
+
+Analysis performed shows thar Flood is the most dangerous event for propery, Hurricane and Tornados are at the 2nd and 3rd places respectively.
+
+Drought is the most dangerous event for Crop, Flood and Ice storm are at the 2nd and 3rd places respectively.
